@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebSocketsServer.h>
@@ -12,6 +13,7 @@ static WebSocketsServer ws(WS_PORT);
 
 static bool armed        = false;
 static bool stbyEnabled  = false;
+static bool rawMode      = false;  // true = cmd "raw" activo, PID en pausa
 static uint32_t lastStatusMs = 0;
 static uint8_t motorVals[4] = {0, 0, 0, 0};  // FL, FR, BL, BR
 
@@ -44,8 +46,34 @@ static PID pidYaw   {PID_YAW_KP,   PID_YAW_KI,   PID_YAW_KD,   PID_LIMIT};
 static float rollAngle  = 0.0f;
 static float pitchAngle = 0.0f;
 static float yawRate    = 0.0f;
-static float gyroBias[3] = {0.0f, 0.0f, 0.0f};
-static bool  imuOk      = false;
+static float gyroBias[3]  = {0.0f, 0.0f, 0.0f};
+static float accelOff[3]  = {0.0f, 0.0f, 0.0f};  // offsets de calibración del acelerómetro
+static bool  imuOk        = false;
+
+// ── NVS calibración ───────────────────────────────────────────────────────────
+
+static void loadCalibration() {
+  Preferences prefs;
+  prefs.begin("drone_cal", true);
+  accelOff[0] = prefs.getFloat("ax", 0.0f);
+  accelOff[1] = prefs.getFloat("ay", 0.0f);
+  accelOff[2] = prefs.getFloat("az", 0.0f);
+  prefs.end();
+  LOG("[CAL] Offsets accel cargados: ax=%.4f ay=%.4f az=%.4f\n",
+      accelOff[0], accelOff[1], accelOff[2]);
+}
+
+static void saveCalibration() {
+  Preferences prefs;
+  prefs.begin("drone_cal", false);
+  prefs.putFloat("ax", accelOff[0]);
+  prefs.putFloat("ay", accelOff[1]);
+  prefs.putFloat("az", accelOff[2]);
+  prefs.end();
+  LOG("[CAL] Offsets guardados en NVS\n");
+}
+
+// ── Lectura IMU ───────────────────────────────────────────────────────────────
 
 static void imuWrite(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(IMU_ADDR);
@@ -67,23 +95,22 @@ static bool imuInit() {
     return false;
   }
   LOG("[IMU] WHO_AM_I=0x%02X OK\n", who);
-
   imuWrite(0x6B, 0x80);  // reset completo
   delay(100);
   imuWrite(0x6B, 0x01);  // wake up, clock desde gyro X
   delay(10);
-  imuWrite(0x1A, 0x03);  // DLPF ≈ 41 Hz (reduce ruido)
+  imuWrite(0x1A, 0x03);  // DLPF ≈ 41 Hz
   imuWrite(0x19, 0x03);  // SMPLRT_DIV=3 → 250 Hz
   imuWrite(0x1B, 0x00);  // GYRO_CONFIG:  ±250 °/s
   imuWrite(0x1C, 0x00);  // ACCEL_CONFIG: ±2 g
   return true;
 }
 
-// Lee 14 bytes seguidos: 6 accel + 2 temp + 6 gyro
+// Lee hardware sin ningún offset aplicado (usado solo en calibración)
 static void imuReadRaw(float &ax, float &ay, float &az,
                        float &gx, float &gy, float &gz) {
   Wire.beginTransmission(IMU_ADDR);
-  Wire.write(0x3B);  // ACCEL_XOUT_H
+  Wire.write(0x3B);
   Wire.endTransmission(false);
   Wire.requestFrom(IMU_ADDR, (uint8_t)14);
 
@@ -94,17 +121,80 @@ static void imuReadRaw(float &ax, float &ay, float &az,
   ax = rd() * ACCEL_SCALE;
   ay = rd() * ACCEL_SCALE;
   az = rd() * ACCEL_SCALE;
-  rd();  // temperatura (descartada)
+  rd();  // temperatura
   gx = rd() * GYRO_SCALE;
   gy = rd() * GYRO_SCALE;
   gz = rd() * GYRO_SCALE;
 }
 
-// Promedia 250 muestras para calcular offset del giroscopio en reposo
-static void calibrateGyro() {
-  LOG("[IMU] Calibrando giroscopio (no mover el dron)...\n");
+// Lee IMU con offsets de calibración aplicados
+static void imuRead(float &ax, float &ay, float &az,
+                    float &gx, float &gy, float &gz) {
+  imuReadRaw(ax, ay, az, gx, gy, gz);
+  // Accel: restar offset → cuando nivelado, ax=0 ay=0 az=1g
+  ax -= accelOff[0];
+  ay -= accelOff[1];
+  az -= accelOff[2];  // accelOff[2] = az_promedio - 1.0f
+  // Gyro: restar bias de reposo
+  gx -= gyroBias[0];
+  gy -= gyroBias[1];
+  gz -= gyroBias[2];
+}
+
+// Calibración completa: acelerómetro + giroscopio (~2 s)
+// Requiere dron nivelado y en reposo. Guarda offsets en NVS.
+static void calibrateIMU(uint8_t clientId) {
+  ws.sendTXT(clientId, "{\"calibStatus\":\"running\"}");
+  LOG("[CAL] Calibrando IMU — no mover el dron (~2s)...\n");
+
   const int N = 250;
-  double sx = 0, sy = 0, sz = 0;
+  double sax=0, say=0, saz=0, sgx=0, sgy=0, sgz=0;
+  float ax, ay, az, gx, gy, gz;
+
+  for (int i = 0; i < N; i++) {
+    imuReadRaw(ax, ay, az, gx, gy, gz);
+    sax += ax; say += ay; saz += az;
+    sgx += gx; sgy += gy; sgz += gz;
+    delay(4);
+    if (i % 25 == 0) ws.loop();  // mantiene el WebSocket vivo durante la espera
+  }
+
+  accelOff[0] = (float)(sax / N);          // offset ax  (idealmente 0)
+  accelOff[1] = (float)(say / N);          // offset ay  (idealmente 0)
+  accelOff[2] = (float)(saz / N) - 1.0f;  // offset az  (idealmente az=1g, offset=desviación)
+  gyroBias[0] = (float)(sgx / N);
+  gyroBias[1] = (float)(sgy / N);
+  gyroBias[2] = (float)(sgz / N);
+
+  saveCalibration();
+
+  // Resetear ángulos y PID con los nuevos offsets aplicados
+  pidRoll.reset(); pidPitch.reset(); pidYaw.reset();
+  imuRead(ax, ay, az, gx, gy, gz);
+  rollAngle  = atan2f(ay, az)                    * RAD_TO_DEG;
+  pitchAngle = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
+
+  char buf[160];
+  snprintf(buf, sizeof(buf),
+    "{\"calibStatus\":\"done\","
+    "\"ax\":%.4f,\"ay\":%.4f,\"az\":%.4f,"
+    "\"gx\":%.4f,\"gy\":%.4f,\"gz\":%.4f,"
+    "\"roll\":%.2f,\"pitch\":%.2f}",
+    accelOff[0], accelOff[1], accelOff[2],
+    gyroBias[0], gyroBias[1], gyroBias[2],
+    rollAngle, pitchAngle);
+  ws.broadcastTXT(buf);
+
+  LOG("[CAL] Accel offsets: %.4f  %.4f  %.4f\n", accelOff[0], accelOff[1], accelOff[2]);
+  LOG("[CAL] Gyro bias:     %.4f  %.4f  %.4f\n", gyroBias[0], gyroBias[1], gyroBias[2]);
+  LOG("[CAL] Angulos post-cal: roll=%.2f pitch=%.2f\n", rollAngle, pitchAngle);
+}
+
+// Calibración rápida de giroscopio al arrancar (sin guardar — temperatura variable)
+static void calibrateGyroStartup() {
+  LOG("[IMU] Calibrando giroscopio al inicio...\n");
+  const int N = 250;
+  double sx=0, sy=0, sz=0;
   float ax, ay, az, gx, gy, gz;
   for (int i = 0; i < N; i++) {
     imuReadRaw(ax, ay, az, gx, gy, gz);
@@ -115,15 +205,6 @@ static void calibrateGyro() {
   gyroBias[1] = sy / N;
   gyroBias[2] = sz / N;
   LOG("[IMU] Bias gyro: %.3f  %.3f  %.3f °/s\n", gyroBias[0], gyroBias[1], gyroBias[2]);
-}
-
-// Lee IMU con bias corregido
-static void imuRead(float &ax, float &ay, float &az,
-                    float &gx, float &gy, float &gz) {
-  imuReadRaw(ax, ay, az, gx, gy, gz);
-  gx -= gyroBias[0];
-  gy -= gyroBias[1];
-  gz -= gyroBias[2];
 }
 
 // ── Motor control ─────────────────────────────────────────────────────────────
@@ -139,8 +220,7 @@ static void writeMotors(uint8_t fl, uint8_t fr, uint8_t bl, uint8_t br) {
 
 static void stopMotors() { writeMotors(0, 0, 0, 0); }
 
-// Mezcla X-config con correcciones PID flotantes
-// t: throttle 0-255 | corrY/P/R: salidas PID (±PID_LIMIT)
+// Mezcla X-config con correcciones PID
 static void applyStabilized(uint8_t t, float corrY, float corrP, float corrR) {
   auto clamp = [](float v) -> uint8_t {
     return (uint8_t)constrain((int)v, 0, PWM_MAX);
@@ -153,14 +233,7 @@ static void applyStabilized(uint8_t t, float corrY, float corrP, float corrR) {
   );
 }
 
-// Mezcla directa sin PID (modo raw / sin IMU)
-static void applyMovement(uint8_t t, int8_t y, int8_t p, int8_t r) {
-  auto clamp = [](int v) -> uint8_t { return (uint8_t)constrain(v, 0, PWM_MAX); };
-  writeMotors(clamp(t - r + p + y), clamp(t + r + p - y),
-              clamp(t - r - p - y), clamp(t + r - p + y));
-}
-
-// ── Setpoints del joystick (actualizados por WebSocket) ───────────────────────
+// ── Setpoints del joystick ────────────────────────────────────────────────────
 
 static uint8_t joy_t = 0;
 static int8_t  joy_y = 0, joy_p = 0, joy_r = 0;
@@ -177,7 +250,7 @@ static void onWsEvent(uint8_t id, WStype_t type, uint8_t *payload, size_t len) {
   case WStype_DISCONNECTED:
     LOG("[WS] Cliente %d desconectado\n", id);
     stopMotors();
-    armed = false;
+    armed = false; rawMode = false;
     break;
 
   case WStype_TEXT: {
@@ -187,12 +260,12 @@ static void onWsEvent(uint8_t id, WStype_t type, uint8_t *payload, size_t len) {
     const char *cmd = doc["cmd"] | "";
 
     if (strcmp(cmd, "arm") == 0) {
-      armed = true;
+      armed = true; rawMode = false;
       pidRoll.reset(); pidPitch.reset(); pidYaw.reset();
       LOG("[WS] Armado\n");
 
     } else if (strcmp(cmd, "disarm") == 0) {
-      armed = false;
+      armed = false; rawMode = false;
       stopMotors();
       LOG("[WS] Desarmado\n");
 
@@ -200,20 +273,27 @@ static void onWsEvent(uint8_t id, WStype_t type, uint8_t *payload, size_t len) {
       bool val = doc["val"] | false;
       stbyEnabled = val;
       digitalWrite(PIN_STBY, val ? HIGH : LOW);
-      if (!val) { stopMotors(); armed = false; }
+      if (!val) { stopMotors(); armed = false; rawMode = false; }
       LOG("[WS] STBY %s\n", val ? "ON" : "OFF");
 
     } else if (strcmp(cmd, "move") == 0 && armed) {
-      // Solo almacena setpoints; el loop PID aplica los motores
+      rawMode = false;
       joy_t = doc["t"] | 0;
       joy_y = doc["y"] | 0;
       joy_p = doc["p"] | 0;
       joy_r = doc["r"] | 0;
 
     } else if (strcmp(cmd, "raw") == 0 && armed) {
-      // Bypass del PID — control directo
+      rawMode = true;
       writeMotors(doc["fl"] | 0, doc["fr"] | 0,
                   doc["bl"] | 0, doc["br"] | 0);
+
+    } else if (strcmp(cmd, "calibrate") == 0) {
+      if (armed) {
+        ws.sendTXT(id, "{\"calibStatus\":\"error\",\"msg\":\"Desarma antes de calibrar\"}");
+      } else {
+        calibrateIMU(id);
+      }
     }
     break;
   }
@@ -242,15 +322,16 @@ void setup() {
   delay(100);
   imuOk = imuInit();
   if (imuOk) {
-    calibrateGyro();
+    loadCalibration();        // carga offsets de accel guardados en NVS
+    calibrateGyroStartup();   // calibra giroscopio fresco (drift con temperatura)
 
-    // Inicializar ángulos desde el acelerómetro para evitar transitorio
     float ax, ay, az, gx, gy, gz;
     imuRead(ax, ay, az, gx, gy, gz);
-    rollAngle  = atan2f(ay, az)                       * RAD_TO_DEG;
-    pitchAngle = atan2f(-ax, sqrtf(ay*ay + az*az))    * RAD_TO_DEG;
+    rollAngle  = atan2f(ay, az)                    * RAD_TO_DEG;
+    pitchAngle = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
+    LOG("[IMU] Angulos iniciales: roll=%.2f pitch=%.2f\n", rollAngle, pitchAngle);
   }
-  LOG("[IMU] %s\n", imuOk ? "OK" : "FALLO — vuelo sin estabilización");
+  LOG("[IMU] %s\n", imuOk ? "OK" : "FALLO — vuelo sin estabilizacion");
 
   // ── WiFi ───────────────────────────────────────────────────────────────────
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -281,17 +362,14 @@ void loop() {
     float ax, ay, az, gx, gy, gz;
     imuRead(ax, ay, az, gx, gy, gz);
 
-    // Ángulos estimados por acelerómetro (sucios pero sin deriva)
     float accelRoll  = atan2f(ay, az)                    * RAD_TO_DEG;
     float accelPitch = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
 
-    // Filtro complementario: integra gyro + corrige con accel
     rollAngle  = COMP_ALPHA * (rollAngle  + gx * dt) + (1.0f - COMP_ALPHA) * accelRoll;
     pitchAngle = COMP_ALPHA * (pitchAngle + gy * dt) + (1.0f - COMP_ALPHA) * accelPitch;
     yawRate    = gz;
 
-    if (armed) {
-      // Joystick → setpoints de ángulo / tasa
+    if (armed && !rawMode) {
       float spRoll  = joy_r * (MAX_ANGLE    / 127.0f);
       float spPitch = joy_p * (MAX_ANGLE    / 127.0f);
       float spYaw   = joy_y * (MAX_YAW_RATE / 127.0f);
@@ -302,10 +380,8 @@ void loop() {
 
       applyStabilized(joy_t, corrY, corrP, corrR);
     }
+    // rawMode=true: PID pausado, valores del ultimo cmd "raw" persisten en motores
   }
-
-  // Si el IMU falló, el modo "move" cae en mezcla directa sin PID
-  // (el comando "raw" siempre funciona independientemente)
 
   // ── Telemetría → app cada 100 ms ──────────────────────────────────────────
   if (millis() - lastStatusMs >= STATUS_MS) {

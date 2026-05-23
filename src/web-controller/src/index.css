@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Impide que el navegador capture el gesto de scroll sobre los joysticks */
+.joy-zone {
+  touch-action: none;
+}
+
+/* Barra de motor con transición fluida */
+.motor-bar {
+  transition: width 80ms linear;
+}
+
+/* Slider personalizado */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: theme('colors.frame');
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: theme('colors.accent');
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(79, 195, 247, 0.5);
+  transition: box-shadow 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 12px rgba(79, 195, 247, 0.8);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: theme('colors.accent');
+  border: none;
+  cursor: pointer;
+}
+
+input[type="range"].master-slider::-webkit-slider-thumb {
+  background: theme('colors.warn');
+  box-shadow: 0 0 6px rgba(255, 167, 38, 0.5);
+}
+
+input[type="range"].master-slider::-moz-range-thumb {
+  background: theme('colors.warn');
+}

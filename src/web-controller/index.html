@@ -1,125 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
     <title>Drone Controller</title>
-    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="app">
-
-      <!-- Header -->
-      <header class="topbar">
-        <span class="title">DRONE CONTROLLER</span>
-        <div class="conn-info">
-          <input id="ws-url" class="url-input" type="text"
-                 value="ws://drone.local:81" spellcheck="false" />
-          <button id="connect-btn" class="btn-sm" title="Reconectar">↺</button>
-          <span id="status-dot" class="dot"></span>
-          <span id="status-text">Conectando...</span>
-        </div>
-      </header>
-
-      <!-- Buttons + telemetry -->
-      <section class="controls-row">
-        <button id="stby-btn" class="ctrl-btn" data-on="false">STBY OFF</button>
-
-        <div class="telemetry">
-          <div class="motor">
-            <label>FL</label>
-            <div class="bar-track"><div id="bar-fl" class="bar-fill"></div></div>
-            <span id="val-fl">0</span>
-          </div>
-          <div class="motor">
-            <label>FR</label>
-            <div class="bar-track"><div id="bar-fr" class="bar-fill"></div></div>
-            <span id="val-fr">0</span>
-          </div>
-          <div class="motor">
-            <label>BL</label>
-            <div class="bar-track"><div id="bar-bl" class="bar-fill"></div></div>
-            <span id="val-bl">0</span>
-          </div>
-          <div class="motor">
-            <label>BR</label>
-            <div class="bar-track"><div id="bar-br" class="bar-fill"></div></div>
-            <span id="val-br">0</span>
-          </div>
-        </div>
-
-        <div class="state-panel">
-          <span id="stby-lbl"  class="state-lbl">Motores: STANDBY</span>
-          <span id="armed-lbl" class="state-lbl" data-armed="false">DESARMADO</span>
-        </div>
-
-        <button id="arm-btn" class="ctrl-btn" data-armed="false" disabled>ARM</button>
-      </section>
-
-      <!-- Mode tabs -->
-      <div class="mode-tabs">
-        <button id="tab-joy" class="tab" data-active="true">JOYSTICKS</button>
-        <button id="tab-raw" class="tab" data-active="false">MOTORES</button>
-      </div>
-
-      <!-- Joysticks -->
-      <section id="panel-joy" class="joy-section">
-        <div class="joy-panel">
-          <div class="joy-title">THR / YAW</div>
-          <div id="joy-left" class="joy-zone"></div>
-          <div class="joy-sub">▲ Subir &nbsp;|&nbsp; ◀▶ Girar</div>
-        </div>
-        <div class="joy-panel">
-          <div class="joy-title">PITCH / ROLL</div>
-          <div id="joy-right" class="joy-zone"></div>
-          <div class="joy-sub">▲▼ Adelante / Atrás &nbsp;|&nbsp; ◀▶ Ladear</div>
-        </div>
-      </section>
-
-      <!-- Manual motor control -->
-      <section id="panel-raw" class="raw-section" hidden>
-
-        <div class="raw-row master-row">
-          <label class="raw-lbl">ALL</label>
-          <input id="sl-all" type="range" min="0" max="255" value="0" class="raw-slider master-slider" />
-          <span id="sv-all" class="raw-val">0</span>
-        </div>
-
-        <div class="raw-divider"></div>
-
-        <div class="raw-motors">
-          <div class="raw-row">
-            <label class="raw-lbl">FL</label>
-            <input id="sl-fl" type="range" min="0" max="255" value="0" class="raw-slider" />
-            <span id="sv-fl" class="raw-val">0</span>
-          </div>
-          <div class="raw-row">
-            <label class="raw-lbl">FR</label>
-            <input id="sl-fr" type="range" min="0" max="255" value="0" class="raw-slider" />
-            <span id="sv-fr" class="raw-val">0</span>
-          </div>
-          <div class="raw-row">
-            <label class="raw-lbl">BL</label>
-            <input id="sl-bl" type="range" min="0" max="255" value="0" class="raw-slider" />
-            <span id="sv-bl" class="raw-val">0</span>
-          </div>
-          <div class="raw-row">
-            <label class="raw-lbl">BR</label>
-            <input id="sl-br" type="range" min="0" max="255" value="0" class="raw-slider" />
-            <span id="sv-br" class="raw-val">0</span>
-          </div>
-        </div>
-
-        <button id="all-off-btn" class="ctrl-btn">TODO A CERO</button>
-
-      </section>
-
-      <footer class="kb-hint">
-        Teclado: &nbsp;W/S = Throttle &nbsp;·&nbsp; A/D = Yaw &nbsp;·&nbsp;
-        ↑↓ = Pitch &nbsp;·&nbsp; ←→ = Roll &nbsp;·&nbsp; Espacio = ARM/DISARM
-      </footer>
-
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

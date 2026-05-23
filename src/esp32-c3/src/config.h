@@ -1,8 +1,14 @@
 #pragma once
 
 // ── WiFi ──────────────────────────────────────────────────────────────────────
-#define WIFI_SSID "Riv-Internet-F"
-#define WIFI_PASS "juve3074"
+// Las credenciales vienen del archivo .env vía read_env.py (extra_scripts).
+// Creá un .env en la raíz del proyecto con WIFI_SSID y WIFI_PASS.
+#ifndef WIFI_SSID
+  #define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASS
+  #define WIFI_PASS ""
+#endif
 
 // ── mDNS ─────────────────────────────────────────────────────────────────────
 #define MDNS_NAME "drone"  // accesible como drone.local
