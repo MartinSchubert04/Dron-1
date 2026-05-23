@@ -1,0 +1,54 @@
+# ====================================================================
+# PlatformIO & Embedded (C++)
+# ====================================================================
+# Directorio local de compilación y librerías de PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# ====================================================================
+# Frontend / Node (web-controller)
+# ====================================================================
+# Dependencias de Node (pnpm)
+**/node_modules/
+# Archivos de log de errores
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Salida de producción del build web (ajustá si usás dist, build u out)
+**/web-controller/dist/
+**/web-controller/build/
+
+# ====================================================================
+# IDEs & Editores (VS Code & CLion)
+# ====================================================================
+# Ignoramos la configuración de VS Code (opcional, pero recomendado si tenés paths locales)
+.vscode/
+# Si en algún momento usás CLion / JetBrains
+.idea/
+*.swp
+*.bak
+
+# ====================================================================
+# Archivos del Sistema y Temporales
+# ====================================================================
+.DS_Store
+Thumbs.db
+*.log
+
+# ====================================================================
+# Seguridad y Variables de Entorno (¡Crucial!)
+# ====================================================================
+# Si llegás a usar archivos .env para credenciales de Wi-Fi, tokens, etc.
+*.env
+*.env.local
+
+# ====================================================================
+# Claude / Anthropic
+# ====================================================================
+.claude/
+CLAUDE.md

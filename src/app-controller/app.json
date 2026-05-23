@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Drone Controller",
+    "slug": "drone-controller",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "newArchEnabled": true,
+    "extra": {
+      "eas": {
+        "projectId": "dc073228-57d5-4204-87dc-d7e2be34f422"
+      }
+    },
+    "android": {
+      "package": "com.mschubert.dronecontroller"
+    }
+  }
+}

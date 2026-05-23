@@ -1,0 +1,25 @@
+{
+  "name": "drone-controller",
+  "version": "1.0.0",
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios"
+  },
+  "dependencies": {
+    "@types/react": "~19.1.10",
+    "expo": "~54.0.0",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-dom": "*",
+    "react-native": "0.81.5",
+    "react-native-web": "*"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "*",
+    "typescript": "^5.3.0"
+  },
+  "private": true
+}

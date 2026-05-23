@@ -1,0 +1,48 @@
+---
+Language: Cpp
+
+# === Indentación / cortes de línea ===
+IndentWidth: 2
+# ContinuationIndentWidth: 4
+ColumnLimit: 120
+
+# === Comentarios (NO tocarlos) ===
+ReflowComments: true
+AlignTrailingComments:
+  Kind: Never
+SpacesBeforeTrailingComments: 2
+
+# === Alineaciones (como ahora) ===
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+AlignEscapedNewlines: DontAlign
+
+# === Breaks de línea ===
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+AlwaysBreakTemplateDeclarations: Yes
+
+
+# === Includes (NO TOCAR) ===
+IncludeBlocks: Preserve
+SortIncludes: false
+
+# === Básico ===
+Standard: Auto
+UseTab: Never
+TabWidth: 8
+LineEnding: LF
+InsertNewlineAtEOF: true
+
+# === Defines ===
+IndentPPDirectives: BeforeHash
+
+ConstructorInitializerIndentWidth: 4
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+AllowAllConstructorInitializersOnNextLine: true
+# Pone la coma al principio de la línea
+BreakConstructorInitializers: AfterColon
+...
