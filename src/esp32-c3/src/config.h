@@ -32,7 +32,8 @@
 #define PWM_MAX 255
 
 // ── Status broadcast ──────────────────────────────────────────────────────────
-#define STATUS_MS 100  // send motor values to app every N ms
+#define STATUS_MS    150  // telemetría cada N ms (menos overhead JSON)
+#define WATCHDOG_MS  500  // si no llegan comandos en N ms, desarma por seguridad
 
 // ── IMU (MPU-6500 / MPU-9250) I2C ────────────────────────────────────────────
 #define IMU_SDA  8
@@ -44,23 +45,35 @@
 
 // ── Estabilización ────────────────────────────────────────────────────────────
 #define COMP_ALPHA    0.98f  // peso filtro complementario (gyro vs accel)
-#define MAX_ANGLE     30.0f  // ángulo máximo mapeado desde joystick (°)
+#define MAX_ANGLE     25.0f  // ángulo máximo desde joystick (°) — conservador
 #define MAX_YAW_RATE  90.0f  // tasa de yaw máxima desde joystick (°/s)
-#define PID_LIMIT     80.0f  // corrección PID máxima (cuentas PWM)
-#define IMU_UPDATE_MS 4      // período loop estabilización ≈ 250 Hz
+#define PID_LIMIT     60.0f  // corrección PID máxima (cuentas PWM)
+#define IMU_UPDATE_MS 5      // período loop estabilización = 200 Hz (libera CPU)
+
+// Por debajo de este throttle, motores apagados y PID en reset (ahorra CPU al pairar armado)
+#define THROTTLE_PID_MIN 15
+
+// Si el dron corrige al revés en un eje, cambiá ese signo a -1
+#define STAB_SIGN_ROLL   (+1)
+#define STAB_SIGN_PITCH  (+1)
+#define STAB_SIGN_YAW    (+1)
+
+// ── PID — valores iniciales conservadores. Tunear con el dron en mano. ───────
+// Subir KP de a poco hasta que el dron responda firme sin oscilar.
+// Cuando empieza a oscilar, retroceder ~30% y agregar KD para amortiguar.
 
 // PID Roll
-#define PID_ROLL_KP  1.8f
+#define PID_ROLL_KP  1.0f
 #define PID_ROLL_KI  0.02f
-#define PID_ROLL_KD  0.08f
+#define PID_ROLL_KD  0.12f
 
 // PID Pitch
-#define PID_PITCH_KP 1.8f
+#define PID_PITCH_KP 1.0f
 #define PID_PITCH_KI 0.02f
-#define PID_PITCH_KD 0.08f
+#define PID_PITCH_KD 0.12f
 
-// PID Yaw (control de tasa, no ángulo)
-#define PID_YAW_KP   2.5f
+// PID Yaw (control de tasa angular, no ángulo)
+#define PID_YAW_KP   2.0f
 #define PID_YAW_KI   0.0f
 #define PID_YAW_KD   0.0f
 

@@ -3,15 +3,22 @@ import { useDrone } from './hooks/useDrone';
 import { Header } from './components/Header';
 import { JoystickPanel } from './components/JoystickPanel';
 import { MotorPanel } from './components/MotorPanel';
+import { ConfigPanel } from './components/ConfigPanel';
 
-type Panel = 'joysticks' | 'motors';
+type Panel = 'joysticks' | 'motors' | 'config';
+
+const TABS: { id: Panel; label: string }[] = [
+  { id: 'joysticks', label: 'JOYSTICKS' },
+  { id: 'motors',    label: 'MOTORES'   },
+  { id: 'config',    label: 'CONFIG'    },
+];
 
 export default function App() {
   const drone = useDrone();
   const [panel, setPanel] = useState<Panel>('joysticks');
 
   const switchPanel = useCallback((next: Panel) => {
-    if (next === 'motors') drone.resetJoysticks();
+    if (next !== 'joysticks') drone.resetJoysticks();
     setPanel(next);
   }, [drone]);
 
@@ -25,16 +32,16 @@ export default function App() {
 
       {/* ── Tabs ──────────────────────────────────────────────────── */}
       <div className="flex gap-2 flex-shrink-0">
-        {(['joysticks', 'motors'] as Panel[]).map(p => (
+        {TABS.map(t => (
           <button
-            key={p}
-            onClick={() => switchPanel(p)}
+            key={t.id}
+            onClick={() => switchPanel(t.id)}
             className={`flex-1 py-1 text-[0.65rem] tracking-widest rounded border font-mono transition-all
-              ${panel === p
+              ${panel === t.id
                 ? 'border-accent text-accent bg-accent/10'
-                : 'border-frame text-muted bg-surface hover:text-white hover:border-frame'}`}
+                : 'border-frame text-muted bg-surface hover:text-white'}`}
           >
-            {p === 'joysticks' ? 'JOYSTICKS' : 'MOTORES'}
+            {t.label}
           </button>
         ))}
       </div>
@@ -52,6 +59,17 @@ export default function App() {
           armed={drone.armed}
           onSendRaw={drone.sendRaw}
           onSetThrottle={(t) => { drone.setLeftJoy(t, 0); drone.setRightJoy(0, 0); }}
+        />
+      )}
+
+      {panel === 'config' && (
+        <ConfigPanel
+          config={drone.config}
+          armed={drone.armed}
+          configMsg={drone.configMsg}
+          onApply={drone.applyConfig}
+          onReset={drone.resetConfig}
+          onFetch={drone.fetchConfig}
         />
       )}
 

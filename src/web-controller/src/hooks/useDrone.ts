@@ -4,6 +4,20 @@ export type ConnState = 'disconnected' | 'connecting' | 'connected';
 
 export type CalibState = 'idle' | 'running' | 'done' | 'error';
 
+export interface DroneConfig {
+  compAlpha:  number;
+  maxAngle:   number;
+  maxYawRate: number;
+  pidLimit:   number;
+  thrPidMin:  number;
+  signRoll:   number;
+  signPitch:  number;
+  signYaw:    number;
+  rollKp:  number; rollKi:  number; rollKd:  number;
+  pitchKp: number; pitchKi: number; pitchKd: number;
+  yawKp:   number; yawKi:   number; yawKd:   number;
+}
+
 export interface DroneHook {
   url: string;
   setUrl: (url: string) => void;
@@ -16,6 +30,11 @@ export interface DroneHook {
   imuOk: boolean;
   calibState: CalibState;
   calibrate: () => void;
+  config: DroneConfig | null;
+  configMsg: string;
+  fetchConfig: () => void;
+  applyConfig: (c: Partial<DroneConfig>) => void;
+  resetConfig: () => void;
   connect: () => void;
   disconnect: () => void;
   toggleArm: () => void;
@@ -44,6 +63,9 @@ export function useDrone(): DroneHook {
   const [imuOk, setImuOk]           = useState(false);
   const [calibState, setCalibState] = useState<CalibState>('idle');
   const calibTimer                  = useRef<number | null>(null);
+  const [config, setConfig]         = useState<DroneConfig | null>(null);
+  const [configMsg, setConfigMsg]   = useState<string>('');
+  const configMsgTimer              = useRef<number | null>(null);
 
   const wsRef         = useRef<WebSocket | null>(null);
   const armedRef      = useRef(false);
@@ -117,6 +139,8 @@ export function useDrone(): DroneHook {
     ws.onopen = () => {
       setConn('connected');
       startLoop();
+      // Pedir config actual al conectarse
+      ws.send(JSON.stringify({ cmd: 'getConfig' }));
     };
 
     ws.onclose = () => {
@@ -151,6 +175,17 @@ export function useDrone(): DroneHook {
           if (calibTimer.current) clearTimeout(calibTimer.current);
           calibTimer.current = window.setTimeout(() => setCalibState('idle'), 3000);
         }
+        if (msg.config) {
+          setConfig(msg.config as DroneConfig);
+          setConfigMsg('Config aplicada ✓');
+          if (configMsgTimer.current) clearTimeout(configMsgTimer.current);
+          configMsgTimer.current = window.setTimeout(() => setConfigMsg(''), 2500);
+        }
+        if (typeof msg.configError === 'string') {
+          setConfigMsg(`Error: ${msg.configError}`);
+          if (configMsgTimer.current) clearTimeout(configMsgTimer.current);
+          configMsgTimer.current = window.setTimeout(() => setConfigMsg(''), 3000);
+        }
       } catch { /* ignore */ }
     };
   }, [startLoop, stopLoop]);
@@ -182,6 +217,10 @@ export function useDrone(): DroneHook {
     send({ cmd: 'calibrate' });
     setCalibState('running');
   }, [send]);
+
+  const fetchConfig = useCallback(() => send({ cmd: 'getConfig' }), [send]);
+  const applyConfig = useCallback((c: Partial<DroneConfig>) => send({ cmd: 'setConfig', config: c }), [send]);
+  const resetConfig = useCallback(() => send({ cmd: 'resetConfig' }), [send]);
 
   const setLeftJoy  = useCallback((t: number, y: number) => { leftJoy.current  = { t, y }; }, []);
   const setRightJoy = useCallback((p: number, r: number) => { rightJoy.current = { p, r }; }, []);
@@ -225,6 +264,7 @@ export function useDrone(): DroneHook {
   return {
     url, setUrl, connState, armed, stbyOn, motors, roll, pitch, imuOk,
     calibState, calibrate,
+    config, configMsg, fetchConfig, applyConfig, resetConfig,
     connect, disconnect, toggleArm, toggleStby,
     setLeftJoy, setRightJoy, resetJoysticks, sendRaw,
   };
