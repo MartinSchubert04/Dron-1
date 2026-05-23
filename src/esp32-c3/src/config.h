@@ -28,6 +28,36 @@
 // ── Status broadcast ──────────────────────────────────────────────────────────
 #define STATUS_MS 100  // send motor values to app every N ms
 
+// ── IMU (MPU-6500 / MPU-9250) I2C ────────────────────────────────────────────
+#define IMU_SDA  8
+#define IMU_SCL  9
+#define IMU_ADDR 0x68  // AD0 = GND → 0x68; AD0 = 3V3 → 0x69
+
+#define GYRO_SCALE  (250.0f / 32768.0f)  // °/s por LSB  (rango ±250 dps)
+#define ACCEL_SCALE (2.0f   / 32768.0f)  // g   por LSB  (rango ±2 g)
+
+// ── Estabilización ────────────────────────────────────────────────────────────
+#define COMP_ALPHA    0.98f  // peso filtro complementario (gyro vs accel)
+#define MAX_ANGLE     30.0f  // ángulo máximo mapeado desde joystick (°)
+#define MAX_YAW_RATE  90.0f  // tasa de yaw máxima desde joystick (°/s)
+#define PID_LIMIT     80.0f  // corrección PID máxima (cuentas PWM)
+#define IMU_UPDATE_MS 4      // período loop estabilización ≈ 250 Hz
+
+// PID Roll
+#define PID_ROLL_KP  1.8f
+#define PID_ROLL_KI  0.02f
+#define PID_ROLL_KD  0.08f
+
+// PID Pitch
+#define PID_PITCH_KP 1.8f
+#define PID_PITCH_KI 0.02f
+#define PID_PITCH_KD 0.08f
+
+// PID Yaw (control de tasa, no ángulo)
+#define PID_YAW_KP   2.5f
+#define PID_YAW_KI   0.0f
+#define PID_YAW_KD   0.0f
+
 // ── Debug ─────────────────────────────────────────────────────────────────────
 #define DEBUG
 #ifdef DEBUG
