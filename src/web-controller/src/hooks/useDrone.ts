@@ -77,6 +77,8 @@ export function useDrone(): DroneHook {
   const keysHeld      = useRef(new Set<string>());
   const urlRef        = useRef(url);
   const shouldReconn  = useRef(true);
+  const rawModeRef    = useRef(false);
+  const rawValsRef    = useRef({ fl: 0, fr: 0, bl: 0, br: 0 });
 
   useEffect(() => { urlRef.current = url; }, [url]);
 
@@ -96,6 +98,15 @@ export function useDrone(): DroneHook {
     if (sendTimer.current !== null) return;
     sendTimer.current = window.setInterval(() => {
       if (!armedRef.current) return;
+
+      // Modo raw: mandar valores de sliders sin pasar por PID
+      if (rawModeRef.current) {
+        const r = rawValsRef.current;
+        send({ cmd: 'raw', fl: r.fl, fr: r.fr, bl: r.bl, br: r.br });
+        return;
+      }
+
+      // Modo joystick/estabilizado: mandar setpoints al PID del firmware
       const keys = keysHeld.current;
       const hasKey = (k: string) => keys.has(k);
 
@@ -222,15 +233,21 @@ export function useDrone(): DroneHook {
   const applyConfig = useCallback((c: Partial<DroneConfig>) => send({ cmd: 'setConfig', config: c }), [send]);
   const resetConfig = useCallback(() => send({ cmd: 'resetConfig' }), [send]);
 
-  const setLeftJoy  = useCallback((t: number, y: number) => { leftJoy.current  = { t, y }; }, []);
+  const setLeftJoy  = useCallback((t: number, y: number) => {
+    leftJoy.current = { t, y };
+    rawModeRef.current = false;   // joystick/estabilizador → volver a modo move
+  }, []);
   const setRightJoy = useCallback((p: number, r: number) => { rightJoy.current = { p, r }; }, []);
 
   const resetJoysticks = useCallback(() => {
     leftJoy.current  = { t: 0, y: 0 };
     rightJoy.current = { p: 0, r: 0 };
+    rawModeRef.current = false;
   }, []);
 
   const sendRaw = useCallback((fl: number, fr: number, bl: number, br: number) => {
+    rawValsRef.current = { fl, fr, bl, br };
+    rawModeRef.current = true;    // activar modo raw: el loop manda raw en vez de move
     send({ cmd: 'raw', fl, fr, bl, br });
   }, [send]);
 

@@ -1,0 +1,249 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+const DEFAULT_URL = 'ws://drone.local:81';
+const SEND_MS = 50;
+const TRACKED_KEYS = new Set([
+    'w', 'W', 's', 'S', 'a', 'A', 'd', 'D',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+]);
+export function useDrone() {
+    const [url, setUrl] = useState(DEFAULT_URL);
+    const [connState, setConn] = useState('disconnected');
+    const [armed, setArmed] = useState(false);
+    const [stbyOn, setStbyOn] = useState(false);
+    const [motors, setMotors] = useState([0, 0, 0, 0]);
+    const [roll, setRoll] = useState(0);
+    const [pitch, setPitch] = useState(0);
+    const [imuOk, setImuOk] = useState(false);
+    const [calibState, setCalibState] = useState('idle');
+    const calibTimer = useRef(null);
+    const [config, setConfig] = useState(null);
+    const [configMsg, setConfigMsg] = useState('');
+    const configMsgTimer = useRef(null);
+    const wsRef = useRef(null);
+    const armedRef = useRef(false);
+    const stbyRef = useRef(false);
+    const sendTimer = useRef(null);
+    const reconnTimer = useRef(null);
+    const leftJoy = useRef({ t: 0, y: 0 });
+    const rightJoy = useRef({ p: 0, r: 0 });
+    const keysHeld = useRef(new Set());
+    const urlRef = useRef(url);
+    const shouldReconn = useRef(true);
+    const rawModeRef = useRef(false);
+    const rawValsRef = useRef({ fl: 0, fr: 0, bl: 0, br: 0 });
+    useEffect(() => { urlRef.current = url; }, [url]);
+    const send = useCallback((msg) => {
+        const ws = wsRef.current;
+        if (ws?.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify(msg));
+    }, []);
+    const stopLoop = useCallback(() => {
+        if (sendTimer.current !== null) {
+            clearInterval(sendTimer.current);
+            sendTimer.current = null;
+        }
+    }, []);
+    const startLoop = useCallback(() => {
+        if (sendTimer.current !== null)
+            return;
+        sendTimer.current = window.setInterval(() => {
+            if (!armedRef.current)
+                return;
+            // Modo raw: mandar valores de sliders sin pasar por PID
+            if (rawModeRef.current) {
+                const r = rawValsRef.current;
+                send({ cmd: 'raw', fl: r.fl, fr: r.fr, bl: r.bl, br: r.br });
+                return;
+            }
+            // Modo joystick/estabilizado: mandar setpoints al PID del firmware
+            const keys = keysHeld.current;
+            const hasKey = (k) => keys.has(k);
+            const t = hasKey('w') || hasKey('W') ? 180
+                : hasKey('s') || hasKey('S') ? 0
+                    : leftJoy.current.t;
+            const y = (hasKey('d') || hasKey('D') ? 100 : 0)
+                - (hasKey('a') || hasKey('A') ? 100 : 0)
+                || leftJoy.current.y;
+            const p = (hasKey('ArrowUp') ? 100 : 0)
+                - (hasKey('ArrowDown') ? 100 : 0)
+                || rightJoy.current.p;
+            const r = (hasKey('ArrowRight') ? 100 : 0)
+                - (hasKey('ArrowLeft') ? 100 : 0)
+                || rightJoy.current.r;
+            send({ cmd: 'move', t, y, p, r });
+        }, SEND_MS);
+    }, [send]);
+    const connect = useCallback(() => {
+        if (reconnTimer.current !== null) {
+            clearTimeout(reconnTimer.current);
+            reconnTimer.current = null;
+        }
+        // Cierra socket previo sin disparar auto-reconexión
+        if (wsRef.current) {
+            wsRef.current.onclose = null;
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        shouldReconn.current = true;
+        setConn('connecting');
+        const ws = new WebSocket(urlRef.current.trim() || DEFAULT_URL);
+        wsRef.current = ws;
+        ws.onopen = () => {
+            setConn('connected');
+            startLoop();
+            // Pedir config actual al conectarse
+            ws.send(JSON.stringify({ cmd: 'getConfig' }));
+        };
+        ws.onclose = () => {
+            setConn('disconnected');
+            armedRef.current = false;
+            stbyRef.current = false;
+            setArmed(false);
+            setStbyOn(false);
+            stopLoop();
+            if (shouldReconn.current) {
+                reconnTimer.current = window.setTimeout(connect, 2000);
+            }
+        };
+        ws.onerror = () => ws.close();
+        ws.onmessage = ({ data }) => {
+            try {
+                const msg = JSON.parse(data);
+                if (Array.isArray(msg.motors))
+                    setMotors(msg.motors);
+                if (typeof msg.armed === 'boolean') {
+                    armedRef.current = msg.armed;
+                    setArmed(msg.armed);
+                }
+                if (typeof msg.stby === 'boolean') {
+                    stbyRef.current = msg.stby;
+                    setStbyOn(msg.stby);
+                }
+                if (typeof msg.roll === 'number')
+                    setRoll(msg.roll);
+                if (typeof msg.pitch === 'number')
+                    setPitch(msg.pitch);
+                if (typeof msg.imu === 'boolean')
+                    setImuOk(msg.imu);
+                if (msg.calibStatus === 'running') {
+                    setCalibState('running');
+                }
+                else if (msg.calibStatus === 'done') {
+                    setCalibState('done');
+                    if (calibTimer.current)
+                        clearTimeout(calibTimer.current);
+                    calibTimer.current = window.setTimeout(() => setCalibState('idle'), 4000);
+                }
+                else if (msg.calibStatus === 'error') {
+                    setCalibState('error');
+                    if (calibTimer.current)
+                        clearTimeout(calibTimer.current);
+                    calibTimer.current = window.setTimeout(() => setCalibState('idle'), 3000);
+                }
+                if (msg.config) {
+                    setConfig(msg.config);
+                    setConfigMsg('Config aplicada ✓');
+                    if (configMsgTimer.current)
+                        clearTimeout(configMsgTimer.current);
+                    configMsgTimer.current = window.setTimeout(() => setConfigMsg(''), 2500);
+                }
+                if (typeof msg.configError === 'string') {
+                    setConfigMsg(`Error: ${msg.configError}`);
+                    if (configMsgTimer.current)
+                        clearTimeout(configMsgTimer.current);
+                    configMsgTimer.current = window.setTimeout(() => setConfigMsg(''), 3000);
+                }
+            }
+            catch { /* ignore */ }
+        };
+    }, [startLoop, stopLoop]);
+    const disconnect = useCallback(() => {
+        shouldReconn.current = false;
+        if (reconnTimer.current !== null) {
+            clearTimeout(reconnTimer.current);
+            reconnTimer.current = null;
+        }
+        if (wsRef.current) {
+            wsRef.current.onclose = null;
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        armedRef.current = false;
+        stbyRef.current = false;
+        setConn('disconnected');
+        setArmed(false);
+        setStbyOn(false);
+        stopLoop();
+    }, [stopLoop]);
+    const toggleArm = useCallback(() => {
+        if (!stbyRef.current)
+            return;
+        send({ cmd: armedRef.current ? 'disarm' : 'arm' });
+    }, [send]);
+    const toggleStby = useCallback(() => {
+        const next = !stbyRef.current;
+        send({ cmd: 'stby', val: next });
+    }, [send]);
+    const calibrate = useCallback(() => {
+        send({ cmd: 'calibrate' });
+        setCalibState('running');
+    }, [send]);
+    const fetchConfig = useCallback(() => send({ cmd: 'getConfig' }), [send]);
+    const applyConfig = useCallback((c) => send({ cmd: 'setConfig', config: c }), [send]);
+    const resetConfig = useCallback(() => send({ cmd: 'resetConfig' }), [send]);
+    const setLeftJoy = useCallback((t, y) => {
+        leftJoy.current = { t, y };
+        rawModeRef.current = false; // joystick/estabilizador → volver a modo move
+    }, []);
+    const setRightJoy = useCallback((p, r) => { rightJoy.current = { p, r }; }, []);
+    const resetJoysticks = useCallback(() => {
+        leftJoy.current = { t: 0, y: 0 };
+        rightJoy.current = { p: 0, r: 0 };
+        rawModeRef.current = false;
+    }, []);
+    const sendRaw = useCallback((fl, fr, bl, br) => {
+        rawValsRef.current = { fl, fr, bl, br };
+        rawModeRef.current = true; // activar modo raw: el loop manda raw en vez de move
+        send({ cmd: 'raw', fl, fr, bl, br });
+    }, [send]);
+    // Teclado
+    useEffect(() => {
+        const down = (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (stbyRef.current)
+                    send({ cmd: armedRef.current ? 'disarm' : 'arm' });
+                return;
+            }
+            if (TRACKED_KEYS.has(e.key)) {
+                e.preventDefault();
+                keysHeld.current.add(e.key);
+            }
+        };
+        const up = (e) => keysHeld.current.delete(e.key);
+        document.addEventListener('keydown', down);
+        document.addEventListener('keyup', up);
+        return () => { document.removeEventListener('keydown', down); document.removeEventListener('keyup', up); };
+    }, [send]);
+    // Auto-connect al montar
+    useEffect(() => {
+        connect();
+        return () => {
+            shouldReconn.current = false;
+            stopLoop();
+            if (reconnTimer.current !== null)
+                clearTimeout(reconnTimer.current);
+            if (wsRef.current) {
+                wsRef.current.onclose = null;
+                wsRef.current.close();
+            }
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return {
+        url, setUrl, connState, armed, stbyOn, motors, roll, pitch, imuOk,
+        calibState, calibrate,
+        config, configMsg, fetchConfig, applyConfig, resetConfig,
+        connect, disconnect, toggleArm, toggleStby,
+        setLeftJoy, setRightJoy, resetJoysticks, sendRaw,
+    };
+}
